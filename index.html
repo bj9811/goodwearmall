@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
+    <title>Fashion Ecommerce Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/@stlite/mountable@0.50.0/build/stlite.js"></script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      stlite.mount(
+        {
+          requirements: ["streamlit", "pandas", "plotly", "openpyxl", "xlsxwriter"],
+          entrypoint: "app.py",
+          files: {
+            "app.py": {
+              url: "app.py",
+            },
+          },
+        },
+        document.getElementById("root")
+      );
+    </script>
+  </body>
+</html>
