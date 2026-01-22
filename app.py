@@ -1,0 +1,216 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+# -----------------------------------------------------------------------------
+# 1. Page Configuration
+# -----------------------------------------------------------------------------
+st.set_page_config(
+    page_title="패션 이커머스 경쟁사 분석",
+    page_icon="📊",
+    layout="wide"
+)
+
+# -----------------------------------------------------------------------------
+# 2. Helper Functions
+# -----------------------------------------------------------------------------
+def load_and_preprocess_data(uploaded_file):
+    """
+    업로드된 파일을 읽고 시각화 가능한 형태(Long Format)로 변환합니다.
+    """
+    try:
+        # 1. 파일 읽기 (헤더 없이 일단 로드하여 탐색)
+        if uploaded_file.name.endswith('.csv'):
+            df_raw = pd.read_csv(uploaded_file, header=None)
+        else:
+            df_raw = pd.read_excel(uploaded_file, header=None)
+
+        # 2. 헤더 행 찾기 ('1월' 또는 'Jan'이 포함된 행을 헤더로 간주)
+        header_idx = -1
+        for idx, row in df_raw.iterrows():
+            row_str = row.astype(str).values
+            if any('1월' in s for s in row_str) or any('Jan' in s for s in row_str):
+                header_idx = idx
+                break
+        
+        if header_idx == -1:
+            st.error("데이터에서 '월(Month)' 정보를 찾을 수 없습니다. (예: 1월, 2월...)")
+            return None, None
+
+        # 3. 데이터프레임 재설정
+        df = df_raw.iloc[header_idx+1:].copy()
+        df.columns = df_raw.iloc[header_idx]
+        
+        # 첫 번째 컬럼 이름 재정의 (보통 비어있거나 '몰구분' 등임)
+        cols = list(df.columns)
+        cols[0] = 'Mall'
+        df.columns = cols
+        
+        # 4. 데이터 정제 (콤마 제거 및 수치 변환)
+        # Mall 컬럼을 인덱스로 설정 후 나머지 컬럼 정제
+        df_clean = df.copy() # 원본 보존
+        df_clean.set_index('Mall', inplace=True)
+        
+        # 월별 컬럼만 선택 (숫자로 변환 가능한 것들)
+        # 먼저 모든 데이터를 문자열로 변환 후 콤마 제거, 그리고 numeric으로 변환
+        df_clean = df_clean.apply(lambda x: x.astype(str).str.replace(',', '').apply(pd.to_numeric, errors='coerce'))
+        
+        # NaN이 전부인 행/열 제거
+        df_clean.dropna(how='all', axis=0, inplace=True) # 행 제거
+        df_clean.dropna(how='all', axis=1, inplace=True) # 열 제거
+        
+        # 5. 합계(Total) 컬럼 생성 (Bar Chart용)
+        # sum(axis=1)을 하기 전에, 확실히 숫자형인지 확인 필요하지만 위에서 coerce했으므로 NaN은 0으로 처리하거나 그냥 sum (NaN 무시)
+        df_clean['Total_Users'] = df_clean.sum(axis=1)
+        
+        # 6. Wide -> Long 변환 (Line Chart용)
+        # reset_index로 Mall을 컬럼으로 복구
+        df_reset = df_clean.reset_index()
+        
+        # melt 수행: 식별자(Mall, Total_Users), 변수(Month), 값(Users)
+        # Total_Users는 Line chart에서 불필요하므로 id_vars에 넣고 나중에 필터링하거나, melt 전 제외
+        # month 컬럼들을 식별하기 위해 Total_Users와 Mall을 제외한 나머지 컬럼을 value_vars로 지정하는 것이 안전함.
+        # df_clean에는 Total_Users가 포함되어 있으므로 이를 제외한 컬럼이 월별 데이터
+        month_cols = [c for c in df_clean.columns if c != 'Total_Users']
+        
+        df_long = df_reset.melt(
+            id_vars=['Mall'], 
+            value_vars=month_cols,
+            var_name='Month', 
+            value_name='Users'
+        )
+        
+        return df_clean, df_long
+
+    except Exception as e:
+        st.error(f"데이터 처리 중 오류가 발생했습니다: {e}")
+        return None, None
+
+def get_color_map(malls):
+    """
+    브랜드별 색상 지정: 굿웨어몰/탑텐몰(파랑), 경쟁사(회색/빨강)
+    """
+    color_map = {}
+    
+    # 강조 컬러 정의
+    highlight_blue = '#2980b9'  # 진한 파랑 (굿웨어/탑텐)
+    competitor_red = '#e74c3c'  # 붉은색 (주요 경쟁사, 필요시 사용)
+    default_grey = '#95a5a6'    # 기본 회색
+    
+    for mall in malls:
+        mall_str = str(mall)
+        if '굿웨어' in mall_str or '탑텐' in mall_str or 'Goodwear' in mall_str or 'Topten' in mall_str:
+            color_map[mall] = highlight_blue
+        elif '유니클로' in mall_str or 'SSF' in mall_str: # 주요 경쟁사 강조 (선택사항)
+             color_map[mall] = competitor_red 
+        else:
+            color_map[mall] = default_grey
+            
+    return color_map
+
+# -----------------------------------------------------------------------------
+# 3. Main App Layout
+# -----------------------------------------------------------------------------
+
+# Sidebar
+with st.sidebar:
+    st.header("📂 Data Import")
+    uploaded_file = st.file_uploader("엑셀/CSV 파일을 업로드하세요", type=['xlsx', 'csv'])
+    st.markdown("---")
+    st.caption("Developed for EBIZ Strategy Team")
+
+if uploaded_file is not None:
+    # Data Load
+    df_clean, df_long = load_and_preprocess_data(uploaded_file)
+    
+    if df_clean is not None:
+        # Sidebar Filter
+        all_malls = df_clean.index.unique().tolist()
+        
+        # 기본 선택: 전체
+        selected_malls = st.sidebar.multiselect("분석할 브랜드 선택", all_malls, default=all_malls)
+        
+        if not selected_malls:
+            st.warning("최소 하나의 브랜드를 선택해주세요.")
+            st.stop()
+
+        # Filtering
+        # df_clean index is 'Mall'
+        df_filtered_clean = df_clean.loc[selected_malls]
+        df_filtered_long = df_long[df_long['Mall'].isin(selected_malls)]
+
+        # --- Dashboard Header ---
+        st.title(f"📈 2025 Fashion E-Commerce Dashboard")
+        st.markdown(f"**분석 대상:** {', '.join(selected_malls)}")
+        st.markdown("---")
+
+        # --- Chart Section ---
+        col1, col2 = st.columns([2, 1])
+
+        # 1. Line Chart (Monthly Trend)
+        with col1:
+            st.subheader("🗓️ 월별 사용자 추이 (MAU)")
+            
+            # 색상 매핑 생성
+            color_map = get_color_map(selected_malls)
+            
+            fig_line = px.line(
+                df_filtered_long, 
+                x='Month', 
+                y='Users', 
+                color='Mall',
+                markers=True,
+                color_discrete_map=color_map,
+                hover_data={'Users':':,.0f'} # 툴팁에 콤마 포맷 적용
+            )
+            fig_line.update_layout(
+                xaxis_title=None,
+                yaxis_title="사용자 수 (명)",
+                legend_title=None,
+                template="plotly_white",
+                height=450,
+                hovermode="x unified" # X축 기준 툴팁 통합
+            )
+            st.plotly_chart(fig_line, use_container_width=True)
+
+        # 2. Bar Chart (Market Share)
+        with col2:
+            st.subheader("🏆 연간 누적 점유율")
+            
+            # 합계 기준 정렬
+            df_bar_data = df_filtered_clean.sort_values(by='Total_Users', ascending=True)
+            
+            fig_bar = px.bar(
+                df_bar_data,
+                x='Total_Users',
+                y=df_bar_data.index,
+                orientation='h',
+                color=df_bar_data.index,
+                color_discrete_map=color_map,
+                text='Total_Users'
+            )
+            fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='inside')
+            fig_bar.update_layout(
+                xaxis_title="연간 누적 사용자 (명)",
+                yaxis_title=None,
+                showlegend=False,
+                template="plotly_white",
+                height=450
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
+
+        # --- Data Grid Section ---
+        st.markdown("---")
+        with st.expander("📋 상세 데이터 보기 (Click to Expand)", expanded=True):
+            # 숫자에 콤마 포맷 적용하여 표시
+            st.dataframe(df_filtered_clean.style.format("{:,.0f}"))
+
+else:
+    # 초기 화면 (파일 없을 때)
+    st.info("좌측 사이드바에서 데이터 파일을 업로드해주세요.")
+    st.markdown("""
+    ### 💡 사용 가이드
+    1. **파일 준비:** `몰구분`, `1월`, `2월`... 형태의 헤더가 포함된 엑셀 파일
+    2. **업로드:** 좌측 메뉴에 드래그 앤 드롭
+    3. **분석:** 자동으로 생성되는 차트 확인 (굿웨어/탑텐몰 자동 강조)
+    """)
