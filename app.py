@@ -90,10 +90,24 @@ if uploaded_file is not None:
     df_clean, df_long = load_and_preprocess_data(uploaded_file)
     
     if df_clean is not None and not df_clean.empty:
-        # 브랜드 선택
-        all_malls = df_clean.index.unique().tolist()
-        selected_malls = st.multiselect("비교할 브랜드 선택", all_malls, default=all_malls)
+        # ---------------------------------------------------------
+        # [수정됨] 브랜드 선택 영역: Checkbox List UI
+        # ---------------------------------------------------------
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("비교할 브랜드 선택")
         
+        all_malls = df_clean.index.unique().tolist()
+        selected_malls = []
+
+        # 각 브랜드별로 체크박스 생성 (기본값: 체크됨)
+        for mall in all_malls:
+            # key를 주어 위젯 충돌 방지
+            is_checked = st.sidebar.checkbox(mall, value=True, key=f"chk_{mall}")
+            if is_checked:
+                selected_malls.append(mall)
+        
+        # ---------------------------------------------------------
+
         if selected_malls:
             # 데이터 필터링
             df_filtered_long = df_long[df_long['Mall'].isin(selected_malls)]
@@ -104,7 +118,7 @@ if uploaded_file is not None:
             
             with col1:
                 st.subheader("월별 MAU 추이")
-                # 색상 맵(color_discrete_map) 제거 -> 자동 색상 할당
+                # 자동 색상 할당
                 fig_line = px.line(
                     df_filtered_long, 
                     x='Month', 
@@ -118,7 +132,6 @@ if uploaded_file is not None:
             with col2:
                 st.subheader("연간 누적 점유율")
                 df_bar = df_filtered_clean.sort_values('Total_Users')
-                # 여기도 색상 맵 제거
                 fig_bar = px.bar(
                     df_bar, 
                     x='Total_Users', 
@@ -136,7 +149,7 @@ if uploaded_file is not None:
             st.subheader("상세 데이터")
             st.dataframe(df_filtered_clean)
         else:
-            st.warning("브랜드를 하나 이상 선택해주세요.")
+            st.warning("왼쪽 사이드바에서 최소 하나의 브랜드를 체크해주세요.")
     else:
         st.error("데이터 형식 오류: 파일을 확인해주세요.")
 else:
