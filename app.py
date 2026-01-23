@@ -268,3 +268,18 @@ if uploaded_file is not None:
 
                     with col3_2:
                         st.markdown("**🚺 여성 연령 분포**")
+                        df_f_melt = df_female_filter[age_cols].reset_index().melt(id_vars='Mall', var_name='Age', value_name='Ratio')
+                        fig_f_age = px.bar(df_f_melt, x='Ratio', y='Mall', color='Age', orientation='h',
+                                           color_discrete_sequence=px.colors.sequential.Reds,
+                                           title="Female Age Distribution")
+                        fig_f_age.update_layout(height=400, xaxis_title="전체 유저 대비 비중(%)", yaxis_title=None)
+                        st.plotly_chart(fig_f_age, use_container_width=True)
+                else:
+                    st.info("선택한 브랜드의 인구 통계 데이터가 없습니다.")
+            else:
+                st.warning("인구 통계 데이터를 찾을 수 없습니다.")
+
+    else:
+        st.error("데이터 파일 형식을 인식하지 못했습니다. (키워드: 월별 사용자수, 월별 신규설치수 등)")
+else:
+    st.info("좌측 사이드바에서 데이터 파일을 업로드해주세요.")
